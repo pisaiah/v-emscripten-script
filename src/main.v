@@ -14,17 +14,23 @@ fn main() {
 
 	vdir := os.args[1]
 	proj := os.args[2]
+	
+	join_args := os.args.join(',')
+	test_debug := join_args.contains(',-COMP_C_ONLY')
 
 	println('Renaming vlib/os/password_nix.c.v ...')
 	rp0 := os.real_path('${vdir}/vlib/os/password_nix.c.v')
 	rp1 := os.real_path('${vdir}/vlib/os/password_nix.c.v.null')
-	os.mv(rp0, rp1) or {
-		panic(err)
+	if os.exists(rp0) {
+		os.mv(rp0, rp1) or {
+			panic(err)
+		}
 	}
 	
+	if !test_debug {
 	println('Compiling project to C...')
 	v_exe := os.real_path('${vdir}/v.exe')
-	cmd := '${v_exe} -d emscripten -keepc -showcc -skip-unused -d power_save -w -gc none -os wasm32_emscripten "${proj}" -o emscripten_.c'
+	cmd := '${v_exe} -skip-unused -d emscripten -keepc -showcc -skip-unused -d power_save -w -gc none -os wasm32_emscripten "${proj}" -o emscripten_.c'
 	res := os.execute(cmd)
 	dump(res)
 	
@@ -107,6 +113,7 @@ fn main() {
 			ln << '/*'
 		} // */
 	}
+	dump(closure_id)
 
 	mut ln1 := []string{}
 	// mut aa := ''
@@ -135,14 +142,135 @@ fn main() {
 	
 	// fn write_file_array(path string, buffer array) !
 	os.write_file('emscripten.c', ln1.join('\n')) or {}
+	}
+	
+	// Custom skip unused
+	mut ins := false
+	mut insi := 0
+	mut slines := os.read_lines('emscripten.c') or { [''] }
+	
+	torms := if join_args.contains(',-remove=') { join_args.split(',-remove=')[1].split(',')[0] } else { '' }
+
+	mut torems := []string{}
+	for s in torms.split(';') {
+		println('Adding ${s} to remove.')
+		torems << s
+	}
+	
+	/*torems := [
+		''
+		//'iui__HBox',
+		//'iui__SplitView',
+		//'iui__Tree2',
+		//'iui__TreeNode',
+		//'iui__Tabbox',
+		//'iui__Switch',
+		//'iui__Progressbar',
+		//'iui__Checkbox',
+		//'iui__VBox',
+		//'iui__Textbox'
+	]*/
+	
+	// torem := 'iui__HBox'
+	
+	// for torem in torems {
+	
+	for i, mut line in slines {
+		if torems[0] == '' {
+			break
+		}
+	
+		trim := line.trim_space()
+		ind := line.replace(trim, '').len 
+
+			//dump(torem)
+			for torem in torems {
+			
+			if line.contains(torem) {
+				if line.starts_with('typedef ') || ((line.starts_with('int') || line.starts_with('f32') || line.starts_with('VV_LOCAL_SYMBOL') || line.starts_with('void') || line.starts_with('static')) && line.ends_with(');')) {
+					slines[i] = '// ' + line
+				}
+				
+				if line.contains('${torem}* _${torem};') {
+					dump(line)
+					slines[i] = ' // ' + line
+					line = slines[i]
+				}
+				
+				if line.contains('(com)->_typ == _iui__Component_iui__HBox_index') {
+					slines[i] = line.replace('(com)->_typ == _iui__Component_iui__HBox_index', 'false/*REMOVED ${torem}*/')
+					line = slines[i]
+				}
+				
+				if line.contains('(a)->_typ == _iui__Component_iui__HBox_index') {
+					slines[i] = line.replace('(a)->_typ == _iui__Component_iui__HBox_index', 'false/*REMOVED ${torem}*/')
+					line = slines[i]
+				}
+				
+				if line.contains('|| (x._typ == _iui__Component_${torem}_index)') {
+					slines[i] = line.replace('|| (x._typ == _iui__Component_${torem}_index)', '/*REMOVED ${torem}*/')
+				}
+				
+				if line.contains('._method_draw = ') {
+					slines[i] = '//' + line
+				}
+				
+				if line.contains('if (x._typ == _iui__Component_') {
+					slines[i] = '//' + line
+				}
+				
+				if line.contains('return "${torem}"') && line.contains('if (sidx ==') {
+					slines[i] = '//' + line
+				} 
+
+				if line.contains('if (sidx == _iui__Component_${torem}_index)') {
+					slines[i] = '//' + line
+				} 
+				
+				if line.ends_with('{') && !ins {
+				
+					if !slines[i].contains('/*REMOVED ') {
+				
+					slines[i] = '/*' + line // */
+					ins = true
+					insi = ind
+					}
+				}
+				
+				line = slines[i]
+		}
+		if ins && line.contains('*/') {
+			slines[i] = line.replace('*/', '') //' // ' + line
+			line = slines[i]
+		}
+		if ins && trim.starts_with('}') {
+			if insi == ind {
+				slines[i] = line + '*/'
+				ins = false
+			}
+		}
+		}
+	}
+	
+	//}
+	
+	os.write_file('emscripten1.c', slines.join('\n')) or {}
 	
 	aps := os.find_abs_path_of_executable('emcc') or { panic(err)}
 	dump(aps)
 	
 	emb := $embed_file('noto.ttf')
 	os.write_file_array('myfont.ttf', emb.to_bytes()) or {}
-	
-	emcc_cmd := '${aps} -fPIC -Wimplicit-function-declaration -w ${vdir}/thirdparty/stb_image/stbi.c -I/usr/include/gc/ -I${vdir}/thirdparty/stb_image -I${vdir}/thirdparty/fontstash -I${vdir}/thirdparty/sokol -I${vdir}/thirdparty/sokol/util -DSOKOL_GLES2 -DSOKOL_NO_ENTRY -DNDEBUG -O3 -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s ALLOW_MEMORY_GROWTH -s MODULARIZE -s ASSERTIONS=1 -s FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=FS -s EXPORT_ES6 -s ASYNCIFY ./emscripten.c -o ./app.js -DSOKOL_LOG=printf --embed-file myfont.ttf@/myfont.ttf'
+
+	include_path := '-w ${vdir}/thirdparty/stb_image/stbi.c -I/usr/include/gc/ -I${vdir}/thirdparty/stb_image -I${vdir}/thirdparty/fontstash -I${vdir}/thirdparty/sokol -I${vdir}/thirdparty/sokol/util'
+	font_path := 'minn.ttf'
+	o_level := if join_args.contains(',-O') { '-O' + join_args.split(',-O')[1].split(',')[0] } else { '-O3' }
+
+	dump(o_level)
+
+	embs := '--embed-file ${font_path}@/myfont.ttf'
+	file_to_emcc := 'emscripten1.c'
+	emcc_cmd := '${aps} -fPIC -Wimplicit-function-declaration ${include_path} -DSOKOL_GLES2 -DSOKOL_NO_ENTRY -DNDEBUG ${o_level} -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s ALLOW_MEMORY_GROWTH -s MODULARIZE -s ASSERTIONS=1 -s FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=FS -s EXPORT_ES6 -s ASYNCIFY ./${file_to_emcc} -o ./app.js -DSOKOL_LOG=printf ${embs}'
 	eres := os.execute(emcc_cmd)
 	dump(eres)
 	

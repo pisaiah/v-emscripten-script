@@ -6,6 +6,9 @@ wch
 *.so
 *.dylib
 *.dll
+emscripten.c
+emscripten_.c
+emscripten1.c
 
 # Ignore binary output folders
 bin/
