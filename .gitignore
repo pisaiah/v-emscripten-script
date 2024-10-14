@@ -9,6 +9,9 @@ wch
 emscripten.c
 emscripten_.c
 emscripten1.c
+*.test.c
+*.gz
+*nt.txt
 
 # Ignore binary output folders
 bin/

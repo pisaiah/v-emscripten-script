@@ -46,6 +46,12 @@ fn main() {
 	mut closure_fns := map[string]int{} 
 
 	mut in_fn := false
+	
+	mut change_closure_impl := true
+	
+	$if no_change_closure ? {
+		change_closure_impl = false
+	}
 
 	for line in lines {
 		mut nl := line
@@ -55,7 +61,7 @@ fn main() {
 		/*if line.contains('CLOSURE') {
 			dump(line)
 		}*/
-		if line.contains('__closure_create(') {
+		if line.contains('__closure_create(') && change_closure_impl {
 			//dump(line)
 			
 			a := line.split('__closure_create(')[1]
@@ -75,11 +81,11 @@ fn main() {
 			closure_id += 1
 		}
 		
-		if line.contains('static void* __closure_create') {
+		if line.contains('static void* __closure_create') && change_closure_impl {
 			dump(line)
 
 			ln << '*/'
-			ln << 'static void* datass[10];'
+			ln << 'static void* datass[20];'
 			ln << ''
 			ln << nl
 			
@@ -103,13 +109,13 @@ fn main() {
 			in_fn = false
 		}
 		
-		if line.contains('_closure_mtx_init();') || line.contains('_closure_init();') {
+		if (line.contains('_closure_mtx_init();') || line.contains('_closure_init();')) && change_closure_impl {
 			nl = '//' + nl
 		}
 		
 		ln << nl
 		
-		if line.contains('// V closure helpers') {
+		if line.contains('// V closure helpers') && change_closure_impl {
 			ln << '/*'
 		} // */
 	}
@@ -149,12 +155,25 @@ fn main() {
 	mut insi := 0
 	mut slines := os.read_lines('emscripten.c') or { [''] }
 	
+	mut ins1 := false
+	mut insi1 := 0
+	
 	torms := if join_args.contains(',-remove=') { join_args.split(',-remove=')[1].split(',')[0] } else { '' }
 
 	mut torems := []string{}
+	
+	
+	
 	for s in torms.split(';') {
+		if s in torems {
+			println('${s} already in to remove')
+			continue
+		}
+	
 		println('Adding ${s} to remove.')
-		torems << s
+		if torms.len > 0 {
+			torems << s
+		}
 	}
 	
 	/*torems := [
@@ -175,18 +194,107 @@ fn main() {
 	
 	// for torem in torems {
 	
-	for i, mut line in slines {
-		if torems[0] == '' {
-			break
+	mut ch := ''
+	
+	
+	mut do_remove := true
+	
+	$if no_do_remove ? {
+		do_remove = false
+	}
+	
+	mut stat_news := []string{}
+	
+	mut to_rem_meth := []string{}
+	
+	to_rem_meths := if join_args.contains(',-remove_meth=') { join_args.split(',-remove_meth=')[1].split(',')[0] } else { '' }
+
+	for s in to_rem_meths.split(';') {
+		if s in to_rem_meth {
+			println('${s} already in to remove')
+			continue
 		}
+	
+		println('Adding method ${s} to remove.')
+		if torms.len > 0 {
+			to_rem_meth << s
+		}
+	}
+	
+	for i, mut line in slines {
+
 	
 		trim := line.trim_space()
 		ind := line.replace(trim, '').len 
 
-			//dump(torem)
-			for torem in torems {
+		if line.contains('#define V_CURRENT_COMMIT_HASH') {
+			ch = line.split('#define V_CURRENT_COMMIT_HASH "')[1].split('"')[0]
+		}
+		
+		if line.contains("__static__new") {
+			stat_news << line
+		}
+
+		if line.contains('_const_v__util__version__v_version = _SLIT(') && do_remove {
+			// Add commit hash to v version
+			start := line.split('");')[0] + ' ${ch}");' 	
+			slines[i] = start
+		}
+		
+		if line.starts_with('string v__util__version__') && !ins && do_remove {
+			if line.ends_with('{') {
+				if !slines[i].contains('/*REMOVED ') {
+					
+					slines[i] = '/*' + line // */
+					ins = true
+					insi = ind
+				}
+				if line.contains('v__util__version__full_v_version(bool is_verbose)') {
+					slines[i] = 'string v__util__version__full_v_version(bool is_verbose) { return _const_v__util__version__v_version; } /*' // */
+				}
+			} else {
+				if line.ends_with(');') && !line.contains('string v__util__version__full_v_version') {
+					slines[i] = '// ' + line
+				}
+			}
+		}
+		
+		//if torems[0] == '' {
+			//break
+		//}
+		
+		// iui__DesktopPane_draw
+		for meth in to_rem_meth {
+		
+			if line.contains(' ${meth}(') {
+		
+				if line.ends_with('{') && !ins1 {
+					if !slines[i].contains('/*REMOVED ') {
+						slines[i] = '' + line + '/*' + line // */
+						ins1 = true
+						insi1 = ind
+					}
+				}
+				line = slines[i]
+			}
 			
-			if line.contains(torem) {
+			if ins1 && line.contains('*/') {
+				slines[i] = line.replace('*/', '') //' // ' + line
+				line = slines[i]
+			}
+			if ins1 && trim.starts_with('}') {
+				if insi1 == ind {
+					slines[i] = '*/' + line
+					ins1 = false
+				}
+				line = slines[i]
+			}
+		
+		}
+
+		//dump(torem)
+		for torem in torems {
+			if line.contains(torem) && do_remove {
 				if line.starts_with('typedef ') || ((line.starts_with('int') || line.starts_with('f32') || line.starts_with('VV_LOCAL_SYMBOL') || line.starts_with('void') || line.starts_with('static')) && line.ends_with(');')) {
 					slines[i] = '// ' + line
 				}
@@ -238,23 +346,47 @@ fn main() {
 				}
 				
 				line = slines[i]
-		}
-		if ins && line.contains('*/') {
-			slines[i] = line.replace('*/', '') //' // ' + line
-			line = slines[i]
-		}
-		if ins && trim.starts_with('}') {
-			if insi == ind {
-				slines[i] = line + '*/'
-				ins = false
+			}
+			if ins && line.contains('*/') {
+				slines[i] = line.replace('*/', '') //' // ' + line
+				line = slines[i]
+			}
+			if ins && trim.starts_with('}') {
+				if insi == ind {
+					slines[i] = line + '*/'
+					ins = false
+				}
 			}
 		}
-		}
+		
+		
+		
 	}
+	
+	
 	
 	//}
 	
 	os.write_file('emscripten1.c', slines.join('\n')) or {}
+	
+	//unused_functions := find_unused_functions('emscripten1.c')
+    //println('Unused functions:')
+    //for func in unused_functions {
+    //    println('- Unused function: ${func}')
+    //}
+	
+	//println(".new() functions: ");
+	for sn in stat_news {
+	
+		//star := sn.split('{')[0]
+	
+		// iui__Button* iui__Button__static__new(iui__ButtonConfig cf);
+		// iui__Panel* pan = iui__Panel__static__new(((iui__PanelConfig)
+		//spp := star.split(' ').len
+	
+		//println("Found static__new ${spp} for: ${star}")
+	}
+
 	
 	aps := os.find_abs_path_of_executable('emcc') or { panic(err)}
 	dump(aps)
@@ -270,7 +402,10 @@ fn main() {
 
 	embs := '--embed-file ${font_path}@/myfont.ttf'
 	file_to_emcc := 'emscripten1.c'
-	emcc_cmd := '${aps} -fPIC -Wimplicit-function-declaration ${include_path} -DSOKOL_GLES2 -DSOKOL_NO_ENTRY -DNDEBUG ${o_level} -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s ALLOW_MEMORY_GROWTH -s MODULARIZE -s ASSERTIONS=1 -s FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=FS -s EXPORT_ES6 -s ASYNCIFY ./${file_to_emcc} -o ./app.js -DSOKOL_LOG=printf ${embs}'
+	emcc_cmd := '${aps} -fPIC -Wimplicit-function-declaration ${include_path} -DSOKOL_GLES3 -DSOKOL_NO_ENTRY -DNDEBUG ${o_level} -s USE_WEBGL2 -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s ALLOW_MEMORY_GROWTH -s MODULARIZE -s ASSERTIONS=0 -s FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=FS -s EXPORT_ES6 -s ASYNCIFY ./${file_to_emcc} -o ./app.js -DSOKOL_LOG=printf ${embs}'
+	
+	dump(emcc_cmd)
+	
 	eres := os.execute(emcc_cmd)
 	dump(eres)
 	
@@ -279,34 +414,53 @@ fn main() {
 
 }
 
-/*
+fn read_c_files(dir string) []string {
+    mut files := []string{}
+	
+	files << os.read_lines(dir) or { [''] }
+	
+    //for file in os.ls(dir) or { [] } {
+    //    if file.ends_with('.c') {
+    //        files << os.read_file(os.join_path(dir, file)) or { '' }
+    //    }
+   // }
+    return files
+}
 
-#!/bin/bash
-export V_LOC=C:/v2
+// Function to extract function names from C code
+fn extract_function_names(code string) []string {
+    mut functions := []string{}
+    lines := code.split_into_lines()
+    for line in lines {
+        if line.contains('(') && line.contains(')') && line.contains('{') {
+            parts := line.split('(')
+            name := parts[0].split(' ').last()
+            functions << name
+        }
+    }
+    return functions
+}
 
-echo %% Compiling     \"$1\"
-echo %% - V flags:    \"$2\"
-echo %% - EMCC flags: \"$3\"
+// Function to check if a function is used in the code
+fn is_function_used(function string, code string) bool {
+    return code.contains(function + '(')
+}
 
-echo "%% Modifying the V compiler"
-mv $V_LOC/vlib/os/password_nix.c.v $V_LOC/vlib/os/password_nix.c.v.null
-
-echo "%% Creating C output of V code"
-$V_LOC/v -d emscripten -keepc -showcc -skip-unused -d power_save -gc none -os wasm32_emscripten "$1" $2 -o emscripten_.c
-
-echo "%% Modifying the C output of V"
-cat emscripten_.c | sed 's/waitpid(p->pid, &cstatus, 0);/-1;/g' | sed 's/waitpid(p->pid, &cstatus, WNOHANG);/-1;/g' | sed 's/wait(0);/-1;/g' &> emscripten.c
-
-echo "%% Attemping the emscripten to compile"
-emcc -fPIC -Wimplicit-function-declaration -w $V_LOC/thirdparty/stb_image/stbi.c -I/usr/include/gc/ -I$V_LOC/thirdparty/stb_image -I$V_LOC/thirdparty/fontstash -I$V_LOC/thirdparty/sokol -I$V_LOC/thirdparty/sokol/util -DSOKOL_GLES2 -DSOKOL_NO_ENTRY -DNDEBUG -O3 -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s ALLOW_MEMORY_GROWTH -s MODULARIZE -s ASSERTIONS=1 -s FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=FS -s EXPORT_ES6 -s ASYNCIFY ./emscripten.c -o ./app.js -DSOKOL_LOG=printf --embed-file ~/.vmodules/malisipi/mui/assets/noto.ttf@/myfont.ttf $3
-
-echo "%% Unmodifying the V compiler"
-mv $V_LOC/vlib/os/password_nix.c.v.null $V_LOC/vlib/os/password_nix.c.v
-
-echo "%% Removing temp files"
-# rm emscripten_.c emscripten.c
-
-read -s -n 1 -p "Press any key to continue . . ."
-echo ""
-
-*/
+// Main function to find unused functions
+fn find_unused_functions(dir string) []string {
+    files := read_c_files(dir)
+    mut all_code := ''
+    for file in files {
+        all_code += file
+    }
+    mut unused_functions := []string{}
+    for file in files {
+        functions := extract_function_names(file)
+        for function in functions {
+            if !is_function_used(function, all_code) {
+                unused_functions << function
+            }
+        }
+    }
+    return unused_functions
+}
