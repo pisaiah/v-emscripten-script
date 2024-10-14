@@ -241,7 +241,7 @@ fn main() {
 			slines[i] = start
 		}
 		
-		if line.starts_with('string v__util__version__') && !ins && do_remove {
+		if false && line.starts_with('string v__util__version__') && !ins && do_remove {
 			if line.ends_with('{') {
 				if !slines[i].contains('/*REMOVED ') {
 					
