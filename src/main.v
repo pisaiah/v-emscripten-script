@@ -362,7 +362,7 @@ fn main() {
 
 	//}
 
-	os.write_file('.c', slines.join('\n')) or {}
+	os.write_file('emscripten1.c', slines.join('\n')) or {}
 
 	// unused_functions := find_unused_functions('emscripten1.c')
 	// println('Unused functions:')
