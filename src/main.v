@@ -26,15 +26,21 @@ fn main() {
 	}
 
 	if !test_debug {
-		println('Compiling project to C...')
 		v_exe := os.real_path('${vdir}/v.exe')
+		print('Compiling project to C using ${v_exe}... ')
 		cmd := '${v_exe} -skip-unused -d emscripten -keepc -showcc -skip-unused -d power_save -w -gc none -os wasm32_emscripten "${proj}" -o emscripten_.c'
 		res := os.execute(cmd)
-		dump(res)
+		
+		if res.output.len == 0 && res.exit_code == 0 {
+			println('Success.')
+		} else {
+			print('\n')
+			dump(res)
+		}
 
-		println('Reading output C...')
+		print('Reading output C..')
 		lines := os.read_lines('emscripten_.c') or { panic(err) }
-		println('Modifying the outputed C...')
+		println('..')
 
 		mut closure_id := 0
 
@@ -77,10 +83,11 @@ fn main() {
 			}
 
 			if line.contains('static void* __closure_create') && change_closure_impl {
-				dump(line)
+				//dump(line)
+				println('Found "void* __closure_create", replacing with array.')
 
 				ln << '*/'
-				ln << 'static void* datass[20];'
+				ln << 'static void* datass[50];'
 				ln << ''
 				ln << nl
 
@@ -99,7 +106,9 @@ fn main() {
 			}
 
 			if line.starts_with('}') && in_fn {
-				dump(line)
+				if line.len > 1 {
+					dump(line)
+				}
 				nl = nl + '*/'
 				in_fn = false
 			}
@@ -116,7 +125,7 @@ fn main() {
 			}
 			// */
 		}
-		dump(closure_id)
+		println('Has ${closure_id} closures.')
 
 		mut ln1 := []string{}
 		// mut aa := ''
@@ -138,6 +147,10 @@ fn main() {
 			}
 			if line.contains('__CLOSURE_GET_DATA()') {
 				nl = nl.replace('__CLOSURE_GET_DATA()', '__CLOSURE_GET_DATA(${bb})')
+			}
+
+			if line.contains('static void* datass[') {
+				nl = nl.replace('static void* datass[50]', 'static void* datass[${closure_id + 2}]')
 			}
 			ln1 << nl
 		}
@@ -163,6 +176,10 @@ fn main() {
 	mut torems := []string{}
 
 	for s in torms.split(';') {
+		if s.len == 0 {
+			continue
+		}
+	
 		if s in torems {
 			println('${s} already in to remove')
 			continue
@@ -211,6 +228,10 @@ fn main() {
 	}
 
 	for s in to_rem_meths.split(';') {
+		if s.len == 0 {
+			continue
+		}
+		
 		if s in to_rem_meth {
 			println('${s} already in to remove')
 			continue
@@ -371,7 +392,7 @@ fn main() {
 	//}
 
 	// println(".new() functions: ");
-	for sn in stat_news {
+	// for sn in stat_news {
 		// star := sn.split('{')[0]
 
 		// iui__Button* iui__Button__static__new(iui__ButtonConfig cf);
@@ -379,10 +400,10 @@ fn main() {
 		// spp := star.split(' ').len
 
 		// println("Found static__new ${spp} for: ${star}")
-	}
+	//}
 
 	aps := os.find_abs_path_of_executable('emcc') or { panic(err) }
-	dump(aps)
+	// println('Found emcc at "${aps}".')
 
 	emb := $embed_file('noto.ttf')
 	os.write_file_array('myfont.ttf', emb.to_bytes()) or {}
@@ -395,25 +416,45 @@ fn main() {
 		'-O3'
 	}
 
-	dump(o_level)
+	// println("Using o_level: ${o_level}")
 
 	embs := '--embed-file ${font_path}@/myfont.ttf'
 	file_to_emcc := 'emscripten1.c'
-	emcc_cmd := '${aps} -fPIC -Wimplicit-function-declaration ${include_path} -DSOKOL_GLES3 -DSOKOL_NO_ENTRY -DNDEBUG ${o_level} -s USE_WEBGL2 -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s ALLOW_MEMORY_GROWTH -s MODULARIZE -s ASSERTIONS=0 -s FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=FS -s EXPORT_ES6 -s ASYNCIFY ./${file_to_emcc} -o ./app.js -DSOKOL_LOG=printf ${embs}'
+	
+	emcc_args := ' -DSOKOL_GLES3 -DSOKOL_NO_ENTRY -DNDEBUG ${o_level} -s USE_WEBGL2 -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s ALLOW_MEMORY_GROWTH -s MODULARIZE -s ASSERTIONS=0 -s FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=FS -s EXPORT_ES6 -s ASYNCIFY ./${file_to_emcc} -o ./app.js -DSOKOL_LOG=printf ${embs}'
+	emcc_cmd := '${aps} -fPIC -Wimplicit-function-declaration ${include_path} ${emcc_args}'
 
-	dump(emcc_cmd)
+	println('emcc_include_path: ')
+	for arg in include_path.split(' -I') {
+		println('\t -${arg}')
+	}
+	
+	println('emcc_args: ')
+	for arg in emcc_args.split(' -') {
+		if arg.len == 0 {
+			continue
+		}
+		println('\t -${arg}')
+	}
+	
+	println('Running emcc ("${aps}")..')
 
 	eres := os.execute(emcc_cmd)
-	dump(eres)
+	if eres.output.len == 0 {
+		println('emcc ran successfully.')
+	} else {
+		dump(eres)
+	}
 
 	println('Restoring vlib/os/password_nix.c.v ...')
 	os.mv('${vdir}/vlib/os/password_nix.c.v.null', '${vdir}/vlib/os/password_nix.c.v') or {}
 
-	println('Copying to output dir...')
+	println('Copying files to output dir...')
 	os.mv('./app.js', './output/app.js') or { println(err) }
 	os.mv('./app.wasm', './output/app.wasm') or { println(err) }
 	output_html_file()
 	output_helper_js()
+	println('Done :)')
 }
 
 fn read_c_files(dir string) []string {
