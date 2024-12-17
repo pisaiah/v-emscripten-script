@@ -150,7 +150,7 @@ fn main() {
 			}
 
 			if line.contains('static void* datass[') {
-				nl = nl.replace('static void* datass[50]', 'static void* datass[${closure_id + 2}]')
+				nl = nl.replace('static void* datass[50]', 'static void* datass[${closure_id * 2}]')
 			}
 			ln1 << nl
 		}
