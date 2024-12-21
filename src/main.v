@@ -2,6 +2,8 @@ module main
 
 import os
 
+const patch_js = 'function instantiateAsync(e,t,n,r){return e||"function"!=typeof WebAssembly.instantiateStreaming||isDataURI(t)||isFileURI(t)||ENVIRONMENT_IS_NODE||"function"!=typeof fetch?instantiateArrayBuffer(t,n,r):fetch(t,{credentials:"same-origin"}).then(e=>{let a=e.headers.get("Content-Length");if(!a)return console.error("Content-Length header is missing"),e.arrayBuffer().then(e=>WebAssembly.instantiate(e,n).then(r));let i=parseInt(a,10),o=0,s=e.body.getReader(),f=new ReadableStream({start(e){!function t(){s.read().then(({done:n,value:r})=>{if(n){e.close();return}o+=r.byteLength; if(typeof wasmLoadProgressCallback == "function") { wasmLoadProgressCallback((o/i*100)) };e.enqueue(r),t()}).catch(t=>{console.error("Error reading stream:",t),e.error(t)})}()}}),g=new Response(f,{headers:{"Content-Type":"application/wasm"}});return WebAssembly.instantiateStreaming(g,n).then(r,function(e){return console.error(`wasm streaming compile failed: ` + e),console.error("falling back to ArrayBuffer instantiation"),instantiateArrayBuffer(t,n,r)})})}'
+
 fn main() {
 	println('Compile VProj to Wasm Utility')
 	println('---------')
@@ -449,6 +451,20 @@ fn main() {
 	println('Restoring vlib/os/password_nix.c.v ...')
 	os.mv('${vdir}/vlib/os/password_nix.c.v.null', '${vdir}/vlib/os/password_nix.c.v') or {}
 
+
+	js_lines := os.read_lines('app.js') or { [''] }
+	mut js := []string{}
+	
+	for line in js_lines {
+		l2 := line.replace('function instantiateAsync', '${patch_js} function instantiateAsync_bkup')
+		js << l2
+	}
+	
+	
+	os.write_file('app.js', js.join('\n')) or {
+		println(error)
+	}
+
 	println('Copying files to output dir...')
 	os.mv('./app.js', './output/app.js') or { println(err) }
 	os.mv('./app.wasm', './output/app.wasm') or { println(err) }
@@ -520,6 +536,7 @@ fn output_html_file() {
 	<div id="mc" class=""><canvas id="canvas" tabindex=-1></canvas></div>
 	<script id="appjs" src="./app.js"></script>
 	<script type="module" src="iui_helper.js"></script>
+	<script>function wasmLoadProgressCallback(a) { console.log(a) ;}</script>
 	</body>
 	</html>
 	'
