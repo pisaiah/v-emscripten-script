@@ -126,6 +126,10 @@ fn main() {
 				ln << '/*'
 			}
 			// */
+			
+			if line.contains('// V embedded data:') && change_closure_impl {
+				ln << '*/'
+			}
 		}
 		println('Has ${closure_id} closures.')
 

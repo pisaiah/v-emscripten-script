@@ -10,7 +10,7 @@ struct App {
 fn main() {
 	mut app := &App{}
 	app.mount_static_folder_at(os.resource_abs_path('.'), '/')
-	vweb.run_at(app, vweb.RunParams{ host: '192.168.2.23', port: 8080, family: .ip }) or { panic(err) }
+	vweb.run_at(app, vweb.RunParams{ host: 'localhost', port: 8080, family: .ip }) or { panic(err) }
 }
 
 pub fn (mut app App) index() vweb.Result {
