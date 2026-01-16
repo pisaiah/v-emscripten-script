@@ -73,7 +73,8 @@ fn main() {
 
 				b := a.split(',')[0]
 
-				if b.contains('void* fn') {
+				// if b.contains('void* fn') {
+				if b.contains('voidptr fun') {
 					c := line.replace_once(b, 'int closure_num_id, ${b}')
 					nl = c
 				} else {
@@ -84,22 +85,48 @@ fn main() {
 				closure_id += 1
 			}
 
-			if line.contains('static void* __closure_create') && change_closure_impl {
+			// Add our custom closure functions
+			if line.contains('// V typedefs:') {
+				ln << '// v-emscripten-script: Custom Closures for WASM '
+				ln << 'static void* datass[50];'
+				ln << 'static void* __CLOSURE_GET_DATA(int closure_num_id) {'
+				ln << '\treturn datass[closure_num_id];'
+				ln << '}'
+				ln << ''
+			}
+			
+			if line.contains('g_closure =') {
+				ln << '/*' // */
+				ln << nl
+				continue
+			}
+			
+			if line.contains('_const_builtin__closure__closure_size =') {
+				ln << nl
+				ln << '*/'
+				continue
+			}
+
+			// if line.contains('static void* __closure_create') && change_closure_impl {
+			if line.contains('builtin__closure__closure_create(voidptr') && line.ends_with('{') && change_closure_impl {
 				//dump(line)
 				println('Found "void* __closure_create", replacing with array.')
 
-				ln << '*/'
-				ln << 'static void* datass[50];'
+				
+				// ln << '*/'
+				// ln << 'static void* datass[50];'
 				ln << ''
 				ln << nl
 
 				ln << '\tdatass[closure_num_id] = data;'
-				ln << '\treturn fn;'
+				ln << '\treturn func;'
 				ln << '}'
 
+				/*
 				ln << 'static void* __CLOSURE_GET_DATA(int closure_num_id) {'
 				ln << '\treturn datass[closure_num_id];'
 				ln << '}'
+				*/
 
 				ln << '/*'
 
@@ -111,7 +138,7 @@ fn main() {
 				if line.len > 1 {
 					dump(line)
 				}
-				nl = nl + '*/'
+				nl = nl + 'Abc */'
 				in_fn = false
 			}
 
@@ -127,9 +154,10 @@ fn main() {
 			}
 			// */
 			
-			if line.contains('// V embedded data:') && change_closure_impl {
-				ln << '*/'
-			}
+			
+			// if line.contains('// V embedded data:') && change_closure_impl {
+			// 	ln << '*/'
+			// }
 		}
 		println('Has ${closure_id} closures.')
 
@@ -153,6 +181,11 @@ fn main() {
 			}
 			if line.contains('__CLOSURE_GET_DATA()') {
 				nl = nl.replace('__CLOSURE_GET_DATA()', '__CLOSURE_GET_DATA(${bb})')
+			}
+
+			// New V
+			if line.contains('g_closure.closure_get_data()') {
+				nl = nl.replace('g_closure.closure_get_data()', '__CLOSURE_GET_DATA(${bb})')
 			}
 
 			if line.contains('static void* datass[') {
@@ -444,6 +477,8 @@ fn main() {
 	}
 	
 	println('Running emcc ("${aps}")..')
+
+	dump(emcc_cmd)
 
 	eres := os.execute(emcc_cmd)
 	if eres.output.len == 0 {
